@@ -1,6 +1,6 @@
 {
   "name": "idle-hacking-suite",
-  "version": "2.0.4",
+  "version": "2.0.5",
   "description": "Idle Hacking Suite MV3 extension and optional Brave capture tooling",
   "main": "index.js",
   "scripts": {

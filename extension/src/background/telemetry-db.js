@@ -21,7 +21,52 @@
   }
   async function addTelemetry(storeName,value){if(!STORES.includes(storeName))throw new Error(`Unknown telemetry store ${storeName}`);const db=await openTelemetryDb();return new Promise((resolve,reject)=>{const tx=db.transaction(storeName,'readwrite');tx.objectStore(storeName).add({...value,ts:Number(value?.ts)||Date.now()});tx.oncomplete=()=>{db.close();resolve(true)};tx.onerror=()=>{const e=tx.error;db.close();reject(e)};});}
   async function getRecent(storeName,sinceMs=86400000,limit=5000){if(!STORES.includes(storeName))throw new Error(`Unknown telemetry store ${storeName}`);const db=await openTelemetryDb();return new Promise((resolve,reject)=>{const tx=db.transaction(storeName,'readonly');const idx=tx.objectStore(storeName).index('ts');const range=IDBKeyRange.lowerBound(Date.now()-sinceMs);const out=[];idx.openCursor(range,'prev').onsuccess=e=>{const cur=e.target.result;if(cur&&out.length<limit){out.push(cur.value);cur.continue();}else{db.close();resolve(out.reverse());}};tx.onerror=()=>{const er=tx.error;db.close();reject(er)};});}
-  async function summary(){const windows={m15:15*60000,h1:3600000,h6:6*3600000,h24:24*3600000,d7:7*86400000};const now=Date.now(),events=await getRecent('combat_events',Math.max(windows.d7,2*86400000),10000).catch(()=>[]);const out={generatedAt:now,combat:{},effectiveness:buildEffectivenessTrend(events,now)};for(const[k,v]of Object.entries(windows))out.combat[k]=rollupCombatEvents(events,v,now);return out;}
+  async function summary(){const windows={m15:15*60000,h1:3600000,h6:6*3600000,h24:24*3600000,d7:7*86400000};const now=Date.now(),events=await getRecent('combat_events',365*86400000,20000).catch(()=>[]);const out={generatedAt:now,combat:{},effectiveness:buildEffectivenessTrend(events,now),performance:globalThis.IHS2?.Performance?.trends?.(events,120)||null};for(const[k,v]of Object.entries(windows))out.combat[k]=rollupCombatEvents(events,v,now);return out;}
+  async function exportTelemetryData(limitPerStore=3000){
+    const db=await openTelemetryDb(),output={};
+    try{
+      for(const name of STORES){
+        output[name]=await new Promise((resolve,reject)=>{
+          const tx=db.transaction(name,'readonly'),req=tx.objectStore(name).index('ts').openCursor(null,'prev'),rows=[];
+          req.onsuccess=()=>{const c=req.result;if(c&&rows.length<limitPerStore){rows.push(c.value);c.continue();}else resolve(rows.reverse());};
+          req.onerror=()=>reject(req.error);tx.onerror=()=>reject(tx.error);
+        });
+      }
+    }finally{db.close();}
+    return output;
+  }
+  async function importTelemetryData(input={},mode='merge'){
+    const db=await openTelemetryDb(),counts={};
+    try{
+      for(const name of STORES){
+        const incoming=Array.isArray(input[name])?input[name]:[];
+        if(!incoming.length&&mode!=='replace')continue;
+        if(incoming.length>3000)throw new Error('Too many '+name+' rows in snapshot');
+        const existing=mode==='replace'?[]:await new Promise((resolve,reject)=>{
+          const t=db.transaction(name,'readonly'),req=t.objectStore(name).getAll();
+          req.onsuccess=()=>resolve(req.result||[]);req.onerror=()=>reject(req.error);
+        });
+        const fingerprint=obj=>JSON.stringify(Object.fromEntries(Object.entries(obj||{}).filter(([k])=>k!=='id')));
+        const seen=new Set(existing.map(fingerprint));
+        const cleaned=[];
+        for(const row of incoming){
+          if(!row||typeof row!=='object'||!Number.isFinite(Number(row.ts)))continue;
+          const safe=globalThis.IHS2?.sanitize?.(row)||row;
+          delete safe.id;
+          const key=fingerprint(safe);
+          if(!seen.has(key)){seen.add(key);cleaned.push(safe);}
+        }
+        await new Promise((resolve,reject)=>{
+          const tx=db.transaction(name,'readwrite'),store=tx.objectStore(name);
+          if(mode==='replace')store.clear();
+          for(const row of cleaned)store.add(row);
+          tx.oncomplete=()=>resolve();tx.onerror=()=>reject(tx.error);
+        });
+        counts[name]=cleaned.length;
+      }
+    }finally{db.close();}
+    return counts;
+  }
   async function clearTelemetry(){const db=await openTelemetryDb();return new Promise((resolve,reject)=>{const tx=db.transaction(STORES,'readwrite');for(const s of STORES)tx.objectStore(s).clear();tx.oncomplete=()=>{db.close();resolve(true)};tx.onerror=()=>{const e=tx.error;db.close();reject(e)};});}
-  return {DB_NAME,DB_VERSION,STORES,rollupCombatEvents,effectivenessScore,buildEffectivenessTrend,openTelemetryDb,addTelemetry,getRecent,summary,clearTelemetry};
+  return {DB_NAME,DB_VERSION,STORES,rollupCombatEvents,effectivenessScore,buildEffectivenessTrend,openTelemetryDb,addTelemetry,getRecent,summary,exportTelemetryData,importTelemetryData,clearTelemetry};
 });
