@@ -1,0 +1,82 @@
+{
+  "manifest_version": 3,
+  "name": "Idle Hacking Suite",
+  "version": "2.0.4",
+  "description": "Idle Hacking Suite 2.0.4 — independent Contract/Event maintenance, clear Enhancement dry-run controls, governor/Breach reliability, and Brave MCP tooling.",
+  "minimum_chrome_version": "111",
+  "permissions": [
+    "storage",
+    "unlimitedStorage"
+  ],
+  "host_permissions": [
+    "https://www.idlehacking.com/*",
+    "https://idlehacking.com/*",
+    "https://ih.gigaforge.com/*"
+  ],
+  "action": {
+    "default_title": "Idle Hacking Suite",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "assets/icon16.png",
+      "32": "assets/icon32.png"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.idlehacking.com/*",
+        "https://idlehacking.com/*",
+        "https://ih.gigaforge.com/*"
+      ],
+      "js": [
+        "src/shared/defaults.js",
+        "src/shared/math.js",
+        "src/shared/sanitize.js",
+        "src/main/action-governor.js",
+        "src/main/action-retry.js",
+        "src/main/error-classifier.js",
+        "src/main/recheck-scheduler.js",
+        "src/main/maintenance-policy.js",
+        "src/main/bootstrap.js",
+        "src/main/engines/contracts.js",
+        "src/main/engines/events.js",
+        "src/main/engines/breach.js",
+        "src/main/engines/combat-advisor.js",
+        "src/main/engines/enhancement-budget.js",
+        "src/main/engines/economy.js",
+        "src/main/engines/hardware.js",
+        "src/main/engines/homelab.js",
+        "src/main/engines/marketplace-governed.js",
+        "page-bridge.js"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": [
+        "https://www.idlehacking.com/*",
+        "https://idlehacking.com/*",
+        "https://ih.gigaforge.com/*"
+      ],
+      "js": [
+        "src/isolated/content-broker.js",
+        "content.js"
+      ],
+      "run_at": "document_start",
+      "world": "ISOLATED"
+    }
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
+  },
+  "background": {
+    "service_worker": "src/background/service-worker.js"
+  },
+  "options_page": "dashboard.html",
+  "icons": {
+    "16": "assets/icon16.png",
+    "32": "assets/icon32.png",
+    "48": "assets/icon48.png",
+    "128": "assets/icon128.png"
+  }
+}

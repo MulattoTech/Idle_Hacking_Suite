@@ -1,0 +1,3 @@
+'use strict';
+globalThis.IHS2UI=globalThis.IHS2UI||{};
+IHS2UI.sparkline=function(canvas,values){if(!canvas)return;const dpr=devicePixelRatio||1,w=canvas.clientWidth||200,h=canvas.clientHeight||38;canvas.width=w*dpr;canvas.height=h*dpr;const c=canvas.getContext('2d');c.scale(dpr,dpr);c.clearRect(0,0,w,h);const a=(values||[]).map(Number).filter(Number.isFinite);if(a.length<2)return;const lo=Math.min(...a),hi=Math.max(...a),span=hi-lo||1;c.beginPath();a.forEach((v,i)=>{const x=i/(a.length-1)*w,y=h-4-(v-lo)/span*(h-8);i?c.lineTo(x,y):c.moveTo(x,y)});c.strokeStyle='#48d8e7';c.lineWidth=1.5;c.stroke();};

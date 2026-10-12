@@ -1,0 +1,5 @@
+(function(root,factory){const out=factory();if(typeof module!=='undefined'&&module.exports)module.exports=out;root.IHS2=root.IHS2||{};root.IHS2.Events=out;})(typeof globalThis!=='undefined'?globalThis:this,function(){
+  function desiredRole(cfg){return cfg?.role==='gatherer'?'gathering':'hacking';}
+  function planEvent(status,participation={},cfg={}){if(cfg.enabled===false)return[];const st=status||{},phase=String(st.phase||'idle'),eventId=String(st.event_id||'');if(!eventId||!['notice','active'].includes(phase)||st.join_window_open===false)return[];const role=desiredRole(cfg);if(!participation?.opted_in)return[{type:'EVENT_OPT_IN',payload:{event_id:eventId,role},priority:90,dedupeKey:`event:join:${eventId}:${role}`,reason:`join ${phase} event as ${role}`}];if(cfg.autoSwitch!==false&&String(participation.role||'')!==role){const locked=Boolean(participation.role_locked_to_gather)&&role==='hacking';if(!locked)return[{type:'EVENT_SWITCH_ROLE',payload:{event_id:eventId,role},priority:90,dedupeKey:`event:switch:${eventId}:${role}`,reason:`switch event role to ${role}`}];}return[];}
+  return{desiredRole,planEvent};
+});
