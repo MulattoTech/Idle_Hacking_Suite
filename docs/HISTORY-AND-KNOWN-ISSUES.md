@@ -14,6 +14,7 @@
 - v2.0.2: Control Center no longer targets itself as the active tab; improved error reporting and diagnostic bundle.
 - v2.0.3: cooldown-aware equipment sends, partial optimizer failure messages, Breach repeat-refill rate repair, fresh-state rechecks for Contracts/Events, structured rate-limit classification.
 - v2.0.4: Contracts/Events can run independently with Master disabled, and Enhancement dashboard explicitly exposes enabled and Dry Run toggles. **Live contract and craft outcomes remain unverified.**
+- v2.0.5 (candidate): 112 granular Control Center settings, sample-based measured efficiency/stability/success, contract mutation confirmation against server state, automatic Enhancement passes only when explicitly enabled (30-minute spacing), 10-minute Breach relic-loadout deduplication, local save-state export/import and 15-minute checkpoints, optional Drive sync with consented OAuth. Node and isolated Chromium extension smoke tested; **no live game craft, contract mutation, or Google account sync claim yet.**
 
 ## Confirmed incidents from October 11–12 diagnostics
 

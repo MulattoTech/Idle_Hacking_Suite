@@ -26,5 +26,6 @@ for(const html of [manifest.action.default_popup,manifest.options_page]){
 function recursive(base){return fs.readdirSync(base,{withFileTypes:true}).flatMap(e=>e.isDirectory()?recursive(path.join(base,e.name)):[path.join(base,e.name)]);}
 const js=recursive(dir).filter(p=>p.endsWith('.js')&&!p.includes(path.sep+'compat'+path.sep));
 for(const f of js)new vm.Script(fs.readFileSync(f,'utf8'),{filename:f});
-assert.equal(JSON.parse(fs.readFileSync(path.join(dir,'manifest.json'),'utf8')).version,'2.0.4');
+const pkg=JSON.parse(fs.readFileSync(path.join(root,'package.json'),'utf8'));
+assert.equal(manifest.version,pkg.version,'Manifest/package versions must agree');
 console.log('Extension check passed: '+js.length+' JS files, '+refs+' references, MV3 '+manifest.version);

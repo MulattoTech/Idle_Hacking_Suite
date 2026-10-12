@@ -76,6 +76,9 @@
     contractPreviousBoardKey:null,
     contractLastCommandAt:{},
     contractLastAction:'idle',
+    contractPending:null,
+    contractLastVerifiedAt:0,
+    contractLastRejected:null,
     eventStatus:null,
     eventParticipation:null,
     eventStatusAt:0,
@@ -182,7 +185,7 @@
       optimizerLast:STATE.optimizerResult.at(-1)||null,
       enhanceLast:STATE.enhanceResult.at(-1)||null,
       breach:{enabled:Boolean(STATE.settings.breach?.enabled),autopilot:Boolean(STATE.settings.breach?.autopilot),lastAction:STATE.breachLastAction,sessionId:STATE.breachState?.session_id||'',status:STATE.breachState?.status||'idle',publicLobbyCount:STATE.breachPublicLobbies.length,classId:breachPreferredClassId?.()||''},
-      contracts:{lastAction:STATE.contractLastAction,activeId:STATE.contractsState?.active_contract_id||'',board:STATE.contractsState?.board_key||'',loaded:Boolean(STATE.contractsState)},
+      contracts:{lastAction:STATE.contractLastAction,activeId:STATE.contractsState?.active_contract_id||'',board:STATE.contractsState?.board_key||'',loaded:Boolean(STATE.contractsState),pending:STATE.contractPending,lastVerifiedAt:STATE.contractLastVerifiedAt,lastRejected:STATE.contractLastRejected},
       event:{lastAction:STATE.eventLastAction,eventId:STATE.eventStatus?.event_id||'',phase:STATE.eventStatus?.phase||'idle',joinWindowOpen:Boolean(STATE.eventStatus?.join_window_open),optedIn:Boolean(STATE.eventParticipation?.opted_in),role:STATE.eventParticipation?.role||'',lastError:STATE.eventLastError},
       economy:{recommendation:STATE.economyRecommendation||null,hardwareLoaded:Boolean(liveHardwareInfo()),homelabLoaded:Boolean(liveHomelabInfo())},
       resourceStrategy:{mode:STATE.settings.resources?.mode||'bottleneck_balancer',status:STATE.resourceStrategyStatus||null,directStoreAutomation:false},
@@ -251,7 +254,7 @@
             if(ev){
               STATE.combatEvents.push(ev); if(STATE.combatEvents.length>120)STATE.combatEvents.splice(0,STATE.combatEvents.length-120);
               STATE.combatMetrics=globalThis.IHS2?.CombatAdvisor?.rollup?.(STATE.combatEvents,60*60*1000,Date.now())||null;
-              STATE.adaptiveWeights=globalThis.IHS2?.CombatAdvisor?.adaptiveWeights?.(STATE.combatMetrics,STATE.settings.optimizer?.profile)||null;
+              STATE.adaptiveWeights=globalThis.IHS2?.CombatAdvisor?.adaptiveWeights?.(STATE.combatMetrics,STATE.settings.optimizer?.profile,STATE.settings.optimizer?.hitRateTarget)||null;
               emit('IHS2_TELEMETRY',{store:'combat_events',value:ev});
               emit('IHS2_TELEMETRY',{store:'metrics_snapshots',value:{ts:Date.now(),kind:'combat_efficiency',...(STATE.combatMetrics||{})}});
             }
@@ -281,8 +284,8 @@
             STATE.contractPreviousBoardKey=priorBoard; STATE.contractsState=msg.payload||null; STATE.contractsStateAt=Date.now();
             if(STATE.settings.contracts?.enabled)setTimeout(()=>runContracts().catch(()=>{}),25);
           } else if (msg?.type === 'CONTRACT_CLAIM_RESULT') {
-            if(msg.payload?.contracts){STATE.contractsState=msg.payload.contracts;STATE.contractsStateAt=Date.now();}
-            STATE.contractLastAction='claim verified';
+            if(msg.payload?.contracts){STATE.contractsState=globalThis.IHS2?.ContractExecution?.mergeClaimPayload?.(STATE.contractsState,msg.payload)||STATE.contractsState;STATE.contractsStateAt=Date.now();}
+            STATE.contractLastAction='claim result received; waiting for board verification';
             if(STATE.settings.contracts?.enabled)setTimeout(()=>runContracts().catch(()=>{}),60);
           } else if (msg?.type === 'CONTRACTS_UPDATE') {
             const u=msg.payload||{}; if(STATE.contractsState){STATE.contractsState={...STATE.contractsState,...u};STATE.contractsStateAt=Date.now();}
@@ -414,7 +417,7 @@
     return out;
   }
   function sameLoadout(a,b){return ['offense','defense','utility'].every(k=>String(a?.[k]||'')===String(b?.[k]||''));}
-  function maybeOptimizeBreachLoadout(classId){const self=breachSelfParticipant();if(!self||!STATE.settings.breach.autoRelics)return false;const desired=breachBestRelicLoadout(classId);if(Object.keys(desired).length<3||sameLoadout(self.relic_loadout,desired))return false;const key=JSON.stringify(desired);if(STATE.breachLastLoadoutKey===key&&Date.now()-Number(STATE.breachLastCommandAt['loadout-opt']||0)<5000)return false;if(breachProtocolSend('BREACH_UPDATE_LOADOUT',{relic_loadout:desired},'loadout-opt',2500)){STATE.breachLastLoadoutKey=key;log(`Breach autopilot: optimized ${classId} relic loadout (${desired.offense}, ${desired.defense}, ${desired.utility})`);return true;}return false;}
+  function maybeOptimizeBreachLoadout(classId){const self=breachSelfParticipant();if(!self||!STATE.settings.breach.autoRelics)return false;const desired=breachBestRelicLoadout(classId);if(Object.keys(desired).length<3||sameLoadout(self.relic_loadout,desired))return false;const key=JSON.stringify(desired);if(STATE.breachLastLoadoutKey===key&&Date.now()-Number(STATE.breachLastCommandAt['loadout-opt']||0)<10*60*1000)return false;if(breachProtocolSend('BREACH_UPDATE_LOADOUT',{relic_loadout:desired},'loadout-opt',2500)){STATE.breachLastLoadoutKey=key;log(`Breach autopilot: optimized ${classId} relic loadout (${desired.offense}, ${desired.defense}, ${desired.utility})`);return true;}return false;}
   const BREACH_EFFECT_BASE={power:11,accuracy:10,evasion:7,armor:7,integrity:7,scan:10,cache_percent:8,barrier_absorption:8,party_barrier:8,execution_threshold:10,signature_maximum:8,starting_signature_percent:7,wipe_retention_percent:8,fatal_survival_percent:7};
   function breachTalentEffectWeight(classId,kind){const k=String(kind||'');let w=BREACH_EFFECT_BASE[k]||(/damage|crit|execution|power/.test(k)?10:/cache|treasure|reward|shard/.test(k)?8:/scan|trace|target|accuracy/.test(k)?9:/heal|barrier|integrity|armor|evasion|survival|reduction/.test(k)?7:/signature|combo|binding|aegis/.test(k)?7:4);if(classId==='tracewalker'&&/scan|trace|target|accuracy|forecast/.test(k))w+=4;if(classId==='daemonbinder'&&/daemon|binding|power|damage/.test(k))w+=4;if(classId==='gatewarden'&&/barrier|aegis|armor|integrity|heal|reduction/.test(k))w+=4;if(classId==='nullblade'&&/evasion|execution|combo|miss|damage/.test(k))w+=4;return w;}
   function breachTalentCandidate(classId){const p=breachClassProgress(classId);if(!p||Number(p.tree_points||0)<=0)return null;const alloc=p.allocations||{},invested=Object.values(alloc).reduce((a,v)=>a+Number(v||0),0),skills=(STATE.breachRegistries?.skills||[]).filter(x=>x.class_id===classId);const eligible=[];for(const sk of skills){const rank=Number(alloc[sk.id]||0),max=Number(sk.max_rank||1);if(rank>=max||Number(p.level||1)<Number(sk.mastery_level||1)||invested<Number(sk.points_required||0))continue;if((sk.requires||[]).some(r=>Number(alloc[r.skill_id]||0)<Number(r.rank||1)))continue;let score=0;for(const ef of sk.effects||[]){const vals=Array.isArray(ef.values)?ef.values:[],cur=Number(vals[Math.min(rank,vals.length-1)]||1),prev=rank>0?Number(vals[Math.min(rank-1,vals.length-1)]||0):0;let delta=Math.abs(cur-prev)||Math.abs(cur)||1;if(/_every$/.test(String(ef.kind||''))&&rank>0)delta=Math.max(1,prev-cur);score+=breachTalentEffectWeight(classId,ef.kind)*Math.log2(2+Math.abs(delta));}score+=Math.max(0,20-Number(sk.row||1));eligible.push({skill:sk,rank,score});}return eligible.sort((a,b)=>b.score-a.score||Number(a.skill.row||0)-Number(b.skill.row||0))[0]||null;}
@@ -568,8 +571,19 @@
   function optimizerRawScore(raw,profile='balanced'){
     if(!raw)return 0;
     const p=String(profile||'balanced'), weights={...(OPTIMIZER_PROFILE_EFFECTS[p]||OPTIMIZER_PROFILE_EFFECTS.balanced)};
-    const adaptive=optimizerAdaptiveEffectWeights(p);for(const [k,v] of Object.entries(adaptive))weights[k]=Number(weights[k]||0)+Number(v||0);
-    let score=(Number(raw.item_level)||0)*10;
+    const objective=String(STATE.settings.optimizer?.objective||'balanced');
+    const adjustments={
+      xp_per_hour:{xp_global:4,xp_hack:3.6,attack_damage:1.7,attack_speed:1.9,accuracy:1.6},
+      sustainable_streak:{accuracy:2.2,max_hp:3,defense:3,evasion:3,regeneration:2.4,damage_barrier:2},
+      credits_per_hour:{credits:5,drop_boost:2.2,item_rarity:1.8,attack_damage:1.5,attack_speed:1.6},
+      accuracy_first:{accuracy:5,attack_damage:1.3,attack_speed:1.4}
+    };
+    for(const [stat,multiple] of Object.entries(adjustments[objective]||{}))weights[stat]=Math.max(.2,Number(weights[stat]||.5))*multiple;
+    const adaptive=optimizerAdaptiveEffectWeights(p);
+    for(const [k,v] of Object.entries(adaptive))weights[k]=Number(weights[k]||0)+Number(v||0);
+    // A level baseline preserves item-power differences, but limits their dominance over
+    // multiple strong target-specific affixes. These are utility weights, NOT predicted DPS.
+    let score=(Number(raw.item_level)||0)*4;
     const rarity=String(raw.rarity||'Basic').replace(/^./,c=>c.toUpperCase());
     score+=(RARITY_WEIGHT[rarity]||0)*350;
     if(raw.signature_id||raw.signature_name)score+=900;
@@ -1175,7 +1189,7 @@
   }
   async function sendDirectCraft(item,plan,cfg,stats){
     protectItem(itemFromGameData(item,false)||{id:item.id},true);
-    if(cfg.dryRun){log(`[ENHANCE] DRY RUN ${slotFromGameItem(item)||item.base_type}: ${plan.label} — ${plan.reason}; cost ${costLabel((plan.costs||[]).map(x=>({...x,have:Number(liveCurrentPlayer()?.[x.resource])||0})))}${plan.creditCost?` + ${Math.ceil(plan.creditCost).toLocaleString()} credits`:''}`);return{item,rolledFailure:false};}
+    if(cfg.dryRun){log(`[ENHANCE] DRY RUN ${slotFromGameItem(item)||item.base_type}: ${plan.label} — ${plan.reason}; cost ${costLabel((plan.costs||[]).map(x=>({...x,have:Number(liveCurrentPlayer()?.[x.resource])||0})))}${plan.creditCost?` + ${Math.ceil(plan.creditCost).toLocaleString()} credits`:''}`);STATE.enhanceResult.push({itemId:String(item.id),slot:slotFromGameItem(item),op:plan.op,status:'dry-run',reason:'Preview only; no action sent and no resources spent'});return{item,rolledFailure:false};}
     const before=rawItemFingerprint(item),beforeCredits=Number(liveCurrentPlayer()?.credits)||0;
     const resultType=`${plan.op}_RESULT`;
     const changed=await sendActionAndAwait({type:plan.op,payload:plan.payload,itemId:item.id,throttleKey:`craft-${plan.op}-${item.id}`,minIntervalMs:Math.max(450,Number(cfg.baseDelayMs)||450),timeoutMs:Math.max(2500,Number(cfg.settlementTimeoutMs)||10000),resultTypes:[resultType],predicate:()=>{const now=rawItemById(item.id);return now&&rawItemFingerprint(now)!==before?now:null;}});
@@ -1191,7 +1205,7 @@
     if(STATE.runningEngine&&!nested&&STATE.runningEngine!=='enhance')throw new Error(`Busy: ${STATE.runningEngine}`);
     const priorEngine=STATE.runningEngine;STATE.runningEngine='enhance';STATE.stopRequested=false;STATE.enhanceStatus='planning';STATE.enhancePlan=[];STATE.enhanceResult=[];
     if(!nested){STATE.sessionTouchedIds=new Set();STATE.quarantineIds=new Set();}
-    const cfg=STATE.settings.enhance,stats={attempted:0,succeeded:0,failed:0,skipped:0,creditsSpent:0,rateLimits:0};
+    const cfg=STATE.settings.enhance,stats={planned:0,attempted:0,succeeded:0,failed:0,skipped:0,creditsSpent:0,rateLimits:0};
     const currentResources=safeResourceSnapshot();
     if(!STATE.enhanceBudgetLedger&&globalThis.IHS2?.EnhancementBudget?.createLedger)STATE.enhanceBudgetLedger=globalThis.IHS2.EnhancementBudget.createLedger(currentResources,Date.now());
     if(STATE.enhanceBudgetLedger){STATE.enhanceBudgetLedger.startingResources={...currentResources};STATE.enhanceBudgetLedger.itemSpent={};STATE.enhanceBudgetLedger.passSpent={};}
@@ -1212,13 +1226,13 @@
           const resources=safeResourceSnapshot();
           const budget=globalThis.IHS2?.EnhancementBudget?.canSpend?.(plan.costs||[],resources,cfg,STATE.enhanceBudgetLedger,{itemId:String(target.id),now:Date.now(),isReroll:plan.op==='EQUIPMENT_MASTERWORK'} )||{ok:true,reason:'legacy budget path'};
           if(!budget.ok){stats.skipped++;const why=`Crafting budget: ${budget.reason}`;STATE.enhancePlan.push({itemId:String(target.id),slot,action:null,blocked:[why],resources,budget});STATE.enhanceResult.push({itemId:String(target.id),slot,status:'budget-blocked',reason:why});log(`[ENHANCE] ${slot}: ${why}`,'warn');break;}
-          STATE.enhancePlan.push({itemId:String(target.id),slot,action:plan.op,label:plan.label,reason:plan.reason,costs:plan.costs,creditCost:plan.creditCost,resources,budget});stats.attempted++;log(`[ENHANCE] ${slot}: ${plan.label} — ${plan.reason} · budget ${budget.profile||cfg.budgetProfile||'balanced'}`);
+          STATE.enhancePlan.push({itemId:String(target.id),slot,action:plan.op,label:plan.label,reason:plan.reason,costs:plan.costs,creditCost:plan.creditCost,resources,budget});if(cfg.dryRun)stats.planned++;else stats.attempted++;log(`[ENHANCE] ${slot}: ${plan.label} — ${plan.reason} · budget ${budget.profile||cfg.budgetProfile||'balanced'}`);
           try{const outcome=await sendDirectCraft(target,plan,cfg,stats);if(!cfg.dryRun&&STATE.enhanceBudgetLedger&&globalThis.IHS2?.EnhancementBudget?.recordSpend){globalThis.IHS2.EnhancementBudget.recordSpend(STATE.enhanceBudgetLedger,String(target.id),plan.costs||[],Date.now(),{isReroll:plan.op==='EQUIPMENT_MASTERWORK',improved:!outcome?.rolledFailure});emit('IHS2_TELEMETRY',{store:'enhancement_spend',value:{ts:Date.now(),itemId:String(target.id),slot,op:plan.op,costs:plan.costs||[],profile:cfg.budgetProfile||'balanced'}});}if(cfg.dryRun||plan.terminal||outcome?.rolledFailure){if(outcome?.rolledFailure)log(`[ENHANCE] ${slot}: Version Upgrade roll failed; stopping this item for the current pass`,'warn');break;}target=outcome?.item||target;steps++;}
           catch(e){stats.failed++;const msg=String(e.message||e);if(/rate/i.test(msg))stats.rateLimits++;STATE.enhanceResult.push({itemId:String(target.id),slot,op:plan.op,status:'failed',reason:msg});log(`[ENHANCE] ${slot}: ${msg}`,'warn');break;}
         }
       }
-      STATE.enhanceStatus=STATE.stopRequested?'stopped':'complete';STATE.lastRuns.enhance=Date.now();
-      log(`[ENHANCE] ${STATE.enhanceStatus}: profile ${cfg.profile||'leveling'}, attempted ${stats.attempted}, succeeded ${stats.succeeded}, blocked/skipped ${stats.skipped}, failed ${stats.failed}, credits ${Math.round(stats.creditsSpent).toLocaleString()}`);
+      STATE.enhanceStatus=STATE.stopRequested?'stopped':cfg.dryRun?'dry-run':'complete';STATE.lastRuns.enhance=Date.now();
+      log(`[ENHANCE] ${STATE.enhanceStatus}: profile ${cfg.profile||'leveling'}, previewed ${stats.planned}, attempted ${stats.attempted}, succeeded ${stats.succeeded}, blocked/skipped ${stats.skipped}, failed ${stats.failed}, credits ${Math.round(stats.creditsSpent).toLocaleString()}`);
     } finally {STATE.runningEngine=nested?priorEngine:null;emitStatus();}
   }
 
@@ -1245,16 +1259,41 @@
   function contractScore(c){if(!c||c.claimed)return-Infinity;const remaining=Math.max(1,Number(c.target||1)-Number(c.progress||0)),progress=Math.max(0,Number(c.progress||0))/Math.max(1,Number(c.target||1)),duration=({quick:1.45,standard:1.2,extended:1,marathon:.8})[String(c.duration||'').toLowerCase()]||1;let score=contractRewardValue(c)/remaining*duration*(1+progress*.9);if(c.is_carryover&&Number(c.progress||0)>0)score*=1.2;if(STATE.settings.contracts.preferRoleAligned){const role=eventEffectiveRole();if(role==='gathering'&&c.type==='harvest')score*=1.8;if(role==='hacking'&&(c.type==='kills'||c.type==='drops'))score*=1.45;}return score;}
   async function runContracts() {
     const cfg=STATE.settings.contracts;if(!cfg.enabled)return;
-    if(!STATE.contractsState||Date.now()-STATE.contractsStateAt>Number(cfg.recoveryPollMs||45000)){
-      if(automationProtocolSend('GET_CONTRACTS',null,'contract',5000))STATE.contractLastAction='refresh requested';
-      if(!STATE.contractsState){STATE.lastRuns.contracts=Date.now();return;}
+    const now=Date.now(),contractsCheck=globalThis.IHS2?.ContractExecution;
+    if(STATE.contractPending){
+      const pending=STATE.contractPending;
+      const verified=contractsCheck?.verify?.(STATE.contractsState,pending)||{verified:false,reason:'no verification logic'};
+      if(verified.verified){
+        STATE.contractLastAction=pending.type==='CONTRACT_CLAIM'?'claim verified by server':'active contract verified by server';
+        STATE.contractLastVerifiedAt=now;
+        traceAction({type:pending.type,result:'verified',detail:pending.id});
+        STATE.contractPending=null;STATE.contractLastRejected=null;
+      }else if(now-pending.startedAt<12000){
+        STATE.contractLastAction=`waiting to verify ${pending.type} (${verified.reason})`;
+        if(now-STATE.contractsStateAt>2500)automationProtocolSend('GET_CONTRACTS',{},'contract',2500);
+        STATE.lastRuns.contracts=now;return;
+      }else{
+        STATE.contractLastRejected=`${pending.type} ${pending.id}: no authoritative confirmation within 12s`;
+        STATE.contractLastAction=STATE.contractLastRejected;
+        traceAction({type:pending.type,result:'unverified',detail:pending.id});
+        STATE.contractPending=null;
+        automationProtocolSend('GET_CONTRACTS',{},'contract',2500);
+        STATE.lastRuns.contracts=now;return;
+      }
+    }
+    if(!STATE.contractsState||now-STATE.contractsStateAt>Number(cfg.recoveryPollMs||45000)){
+      if(automationProtocolSend('GET_CONTRACTS',{},'contract',5000))STATE.contractLastAction='refresh requested';
+      if(!STATE.contractsState){STATE.lastRuns.contracts=now;return;}
     }
     const ctx={eventRole:eventEffectiveRole(),previousBoardKey:STATE.contractPreviousBoardKey};
     const intents=globalThis.IHS2?.Contracts?.planContracts?.(STATE.contractsState,cfg,ctx)||[];
     const intent=intents[0];
     if(intent){
       if(automationProtocolSend(intent.type,intent.payload??{},'contract',intent.type==='GET_CONTRACTS'?1200:1800)){
-        STATE.contractLastAction=intent.reason||intent.type;log(`Contracts: ${STATE.contractLastAction}`);
+        STATE.contractLastAction=intent.reason||intent.type;
+        const pending=contractsCheck?.pendingFor?.(intent,Date.now(),STATE.contractsState?.board_key||'');
+        if(pending){STATE.contractPending=pending;STATE.contractLastAction+='; awaiting server verification';}
+        log(`Contracts: ${STATE.contractLastAction}`);
         if(intent.type==='GET_CONTRACTS')STATE.contractPreviousBoardKey=STATE.contractsState?.board_key||null;
       }
     } else STATE.contractLastAction=STATE.contractsState?.active_contract_id?'active contract retained':'no actionable contract';
@@ -1564,6 +1603,14 @@
     STATE.lastRuns.breach=Date.now();
   }
 
+  async function autoEnhanceIfDue(){
+    const cfg=STATE.settings.enhance;
+    if(!cfg?.enabled||STATE.stopRequested)return false;
+    if(Date.now()-Number(STATE.lastRuns.enhance||0)<30*60*1000)return false;
+    await runEnhancement(true);
+    return true;
+  }
+
   async function runEnabledPass() {
     if (STATE.runningEngine || STATE.stopRequested) return;
     STATE.runningEngine='automation';
@@ -1572,6 +1619,7 @@
       await runEvents();
       await runResources();
       await runBreach();
+      await autoEnhanceIfDue();
       await runShopHomelab();
       await runMarketplace();
       STATE.lastRuns.automation=Date.now();
@@ -1582,7 +1630,7 @@
   async function runBreachLoopOnly() {
     if (STATE.runningEngine || STATE.stopRequested) return;
     STATE.runningEngine='breach-autopilot';
-    try { await runBreach(); }
+    try { await runBreach(); await autoEnhanceIfDue(); }
     catch(e) { log(`Breach autopilot pass: ${e.message}`,'warn'); }
     finally { STATE.runningEngine=null; emitStatus(); }
   }
@@ -1600,15 +1648,17 @@
     if (STATE.loopHandle) clearInterval(STATE.loopHandle);
     STATE.loopHandle=null;
     const breachOnly=Boolean(STATE.settings.breach?.enabled && STATE.settings.breach?.autopilot);
+    const enhanceOnly=Boolean(STATE.settings.enhance?.enabled);
     const marketOnly=Boolean(STATE.settings.marketplace?.enabled && STATE.settings.marketplace?.continuousScan);
     const maintenance=globalThis.IHS2?.planMaintenance?.(STATE.settings)||{contracts:false,events:false};
-    if (!STATE.settings.masterEnabled && !breachOnly && !marketOnly && !maintenance.contracts && !maintenance.events) return;
+    if (!STATE.settings.masterEnabled && !breachOnly && !marketOnly && !enhanceOnly && !maintenance.contracts && !maintenance.events) return;
     const interval=Math.max(3000,Number(STATE.settings.masterIntervalMs)||15000);
     const tick=()=>{
       if (STATE.settings.masterEnabled) return runEnabledPass();
       const current=globalThis.IHS2?.planMaintenance?.(STATE.settings)||{contracts:false,events:false};
       if(current.contracts||current.events)runBackgroundMaintenance(current);
       if (breachOnly) return runBreachLoopOnly();
+      if (enhanceOnly && !STATE.runningEngine && Date.now()-Number(STATE.lastRuns.enhance||0)>=30*60*1000){return runEnhancement(false).catch(e=>log(`Enhancement background pass: ${e.message}`,'warn'));}
       if (marketOnly && !STATE.runningEngine) { STATE.runningEngine='market-history'; return runMarketplace(false).catch(e=>log(`Marketplace background pass: ${e.message}`,'warn')).finally(()=>{STATE.runningEngine=null;emitStatus();}); }
     };
     STATE.loopHandle=setInterval(tick,interval);
@@ -1626,6 +1676,9 @@
           STATE.stopRequested=true;
           STATE.enhanceStatus='stopped';
           log('Stop requested; no new mutation will start');
+          break;
+        case 'RUN_CONTRACTS':
+          await runContracts();
           break;
         case 'RUN_OPTIMIZER':
           await runOptimizer();
