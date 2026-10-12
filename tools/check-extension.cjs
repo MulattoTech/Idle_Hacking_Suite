@@ -28,4 +28,7 @@ const js=recursive(dir).filter(p=>p.endsWith('.js')&&!p.includes(path.sep+'compa
 for(const f of js)new vm.Script(fs.readFileSync(f,'utf8'),{filename:f});
 const pkg=JSON.parse(fs.readFileSync(path.join(root,'package.json'),'utf8'));
 assert.equal(manifest.version,pkg.version,'Manifest/package versions must agree');
+const lock=JSON.parse(fs.readFileSync(path.join(root,'package-lock.json'),'utf8'));
+assert.equal(lock.version,pkg.version,'Package lock version must match package');
+assert.equal(lock.packages?.['']?.version,pkg.version,'Package lock root version must match package');
 console.log('Extension check passed: '+js.length+' JS files, '+refs+' references, MV3 '+manifest.version);
