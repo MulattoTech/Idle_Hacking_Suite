@@ -1,17 +1,20 @@
 {
   "manifest_version": 3,
   "name": "Idle Hacking Suite",
-  "version": "2.0.4",
-  "description": "Idle Hacking Suite 2.0.4 — independent Contract/Event maintenance, clear Enhancement dry-run controls, governor/Breach reliability, and Brave MCP tooling.",
+  "version": "2.0.5",
+  "description": "Idle Hacking Suite 2.0.5 — granular automation controls, sample-based performance, verified contract actions, enhancement scheduling, and portable backup.",
   "minimum_chrome_version": "111",
   "permissions": [
     "storage",
-    "unlimitedStorage"
+    "unlimitedStorage",
+    "alarms",
+    "identity"
   ],
   "host_permissions": [
     "https://www.idlehacking.com/*",
     "https://idlehacking.com/*",
-    "https://ih.gigaforge.com/*"
+    "https://ih.gigaforge.com/*",
+    "https://www.googleapis.com/*"
   ],
   "action": {
     "default_title": "Idle Hacking Suite",
@@ -37,6 +40,7 @@
         "src/main/error-classifier.js",
         "src/main/recheck-scheduler.js",
         "src/main/maintenance-policy.js",
+        "src/main/contract-execution.js",
         "src/main/bootstrap.js",
         "src/main/engines/contracts.js",
         "src/main/engines/events.js",
